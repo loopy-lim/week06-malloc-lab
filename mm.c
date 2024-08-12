@@ -113,7 +113,8 @@ static void *extend_heap(size_t words)
     return coalesce(bp);
 }
 
-static void *find_fit(size_t asize)
+/* first fit */
+static void *__find_fit(size_t asize)
 {
     void *bp;
     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
@@ -124,6 +125,23 @@ static void *find_fit(size_t asize)
         }
     }
     return NULL;
+};
+
+/* best fit*/
+static void *find_fit(size_t asize)
+{
+    void *bp, *bestBp = NULL;
+    size_t bestSize = 0xffffffff;
+
+    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
+    {
+        if (!GET_ALLOC(HDRP(bp)) && GET_SIZE(HDRP(bp)) - asize < bestSize - asize)
+        {
+            bestBp = bp;
+            bestSize = GET_SIZE(HDRP(bp));
+        }
+    }
+    return bestBp;
 };
 
 static void place(void *bp, size_t asize)
@@ -175,10 +193,11 @@ void *mm_malloc(size_t size)
 
     if (size == 0)
         return NULL;
+
     if (size <= DSIZE)
         asize = 2 * DSIZE;
     else
-        asize = DSIZE * ((size * (DSIZE) + (DSIZE - 1)) / DSIZE);
+        asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
 
     if ((bp = find_fit(asize)) != NULL)
     {
@@ -190,6 +209,7 @@ void *mm_malloc(size_t size)
     if ((bp = extend_heap(extendsize / WSIZE)) == NULL)
         return NULL;
     place(bp, asize);
+
     return bp;
 }
 
@@ -210,17 +230,26 @@ void mm_free(void *ptr)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
-
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
+    if (ptr == NULL)
+    {
+        return mm_malloc(size);
+    }
+    else if (size == 0)
+    {
+        mm_free(ptr);
         return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-    if (size < copySize)
-        copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
-    return newptr;
+    }
+    size_t curBlockSize = GET_SIZE(HDRP(ptr));
+
+    if (size + DSIZE <= curBlockSize)
+    {
+        place(ptr, size + DSIZE);
+        return ptr;
+    }
+
+    void *newPtr = mm_malloc(size);
+    memcpy(newPtr, ptr, curBlockSize - DSIZE);
+    mm_free(ptr);
+
+    return newPtr;
 }
